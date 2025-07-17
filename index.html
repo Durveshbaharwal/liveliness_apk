@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Texture & Reflection Liveliness Detection</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: #fff;
+            font-family: 'Arial', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .container {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .video-container {
+            position: relative;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        #video {
+            display: none;
+        }
+
+        #canvas {
+            display: block;
+            max-width: 640px;
+            max-height: 480px;
+            border-radius: 15px;
+        }
+
+        .analysis-panel {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            min-width: 350px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .status-display {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .status-indicator {
+            font-size: 3em;
+            margin-bottom: 10px;
+            padding: 20px;
+            border-radius: 15px;
+            background: rgba(255,255,255,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .status-indicator.live {
+            background: rgba(46, 204, 113, 0.3);
+            color: #2ecc71;
+            box-shadow: 0 0 20px rgba(46, 204, 113, 0.5);
+        }
+
+        .status-indicator.spoof {
+            background: rgba(231, 76, 60, 0.3);
+            color: #e74c3c;
+            box-shadow: 0 0 20px rgba(231, 76, 60, 0.5);
+        }
+
+        .status-indicator.multiple {
+            background: rgba(155, 89, 182, 0.3);
+            color: #9b59b6;
+            box-shadow: 0 0 20px rgba(155, 89, 182, 0.5);
+        }
+
+        .status-indicator.analyzing {
+            background: rgba(241, 196, 15, 0.3);
+            color: #f1c40f;
+            box-shadow: 0 0 20px rgba(241, 196, 15, 0.5);
+        }
+
+        .output-code {
+            font-size: 4em;
+            font-weight: bold;
+            margin: 15px 0;
+            padding: 20px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .metric-card {
+            background: rgba(255,255,255,0.05);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .metric-card h3 {
+            font-size: 0.9em;
+            margin-bottom: 8px;
+            opacity: 0.8;
+        }
+
+        .metric-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #3498db;
+        }
+
+        .metric-value.good {
+            color: #2ecc71;
+        }
+
+        .metric-value.bad {
+            color: #e74c3c;
+        }
+
+        .texture-analysis {
+            margin-bottom: 20px;
+        }
+
+        .texture-analysis h4 {
+            color: #3498db;
+            margin-bottom: 10px;
+        }
+
+        .texture-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .texture-sample {
+            width: 60px;
+            height: 60px;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            background: rgba(0,0,0,0.3);
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            background: rgba(52, 152, 219, 0.8);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            background: rgba(52, 152, 219, 1);
+            transform: translateY(-2px);
+        }
+
+        .log-panel {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 15px;
+            height: 150px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+
+        .log-entry.info {
+            color: #3498db;
+        }
+
+        .log-entry.success {
+            color: #2ecc71;
+        }
+
+        .log-entry.warning {
+            color: #f39c12;
+        }
+
+        .log-entry.error {
+            color: #e74c3c;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .analysis-panel {
+                min-width: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔍 Texture & Reflection Analysis</h1>
+        <p>Advanced liveliness detection using texture and screen reflection analysis</p>
+    </div>
+
+    <div class="container">
+        <div class="video-container">
+            <video id="video" autoplay muted playsinline></video>
+            <canvas id="canvas" width="640" height="480"></canvas>
+        </div>
+        <div class="controls">
+            <select id="cameraSelect" class="btn" style="margin-right: 10px;">
+                <option value="">Select Camera...</option>
+            </select>
+            <button id="switchCamera" class="btn">Switch Camera</button>
+        </div>
+        <div class="analysis-panel">
+            <div class="status-display">
+                <div id="status" class="status-indicator analyzing">🔄 Analyzing...</div>
+                <div id="statusText">Initializing camera...</div>
+                <div id="outputCode" class="output-code">-</div>
+            </div>
+
+            <div class="metrics">
+                <div class="metric-card">
+                    <h3>Texture Variance</h3>
+                    <div id="textureVariance" class="metric-value">0.000</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Reflection Score</h3>
+                    <div id="reflectionScore" class="metric-value">0.000</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Face Count</h3>
+                    <div id="faceCount" class="metric-value">0</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Skin Texture</h3>
+                    <div id="skinTexture" class="metric-value">0.000</div>
+                </div>
+            </div>
+
+            <div class="texture-analysis">
+                <h4>Texture Samples</h4>
+                <div class="texture-grid">
+                    <canvas class="texture-sample" id="sample1" width="60" height="60"></canvas>
+                    <canvas class="texture-sample" id="sample2" width="60" height="60"></canvas>
+                    <canvas class="texture-sample" id="sample3" width="60" height="60"></canvas>
+                    <canvas class="texture-sample" id="sample4" width="60" height="60"></canvas>
+                    <canvas class="texture-sample" id="sample5" width="60" height="60"></canvas>
+                    <canvas class="texture-sample" id="sample6" width="60" height="60"></canvas>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button id="resetBtn" class="btn">Reset Analysis</button>
+                <button id="toggleDebug" class="btn">Toggle Debug</button>
+            </div>
+
+            <div class="log-panel" id="logPanel">
+                <div class="log-entry info">System initializing...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class TextureReflectionDetector {
+            constructor() {
+                this.video = document.getElementById("video");
+                this.canvas = document.getElementById("canvas");
+                this.ctx = this.canvas.getContext("2d");
+                
+                // Analysis variables
+                this.debugMode = false;
+                this.frameCount = 0;
+                this.analysisHistory = [];
+                
+                // Texture analysis parameters
+                this.TEXTURE_THRESHOLD = 0.002;  // Minimum texture variance for live skin
+                this.REFLECTION_THRESHOLD = 0.2; // Maximum reflection score for live person
+                this.SKIN_TEXTURE_THRESHOLD = 0.012; // Minimum skin texture complexity
+                
+                // Initialize texture sample canvases
+                this.textureSamples = [];
+                for (let i = 1; i <= 6; i++) {
+                    this.textureSamples.push(document.getElementById(`sample${i}`));
+                }
+                
+                this.initializeCamera();
+                this.enumerateCameras();
+                this.initializeFaceMesh();
+                this.bindEvents();
+                this.log('Texture & Reflection Detector initialized', 'info');
+                // Wait for camera enumeration before binding camera select
+                setTimeout(() => {
+                    this.bindCameraSelectEvent();
+                }, 1000);
+            }
+            async enumerateCameras() {
+                try {
+                    // Request permission first to get device labels
+                    await navigator.mediaDevices.getUserMedia({ video: true });
+                    
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                    
+                    const cameraSelect = document.getElementById('cameraSelect');
+                    cameraSelect.innerHTML = '<option value="">Select Camera...</option>';
+                    
+                    videoDevices.forEach((device, index) => {
+                        const option = document.createElement('option');
+                        option.value = device.deviceId;
+                        option.textContent = device.label || `Camera ${index + 1}`;
+                        cameraSelect.appendChild(option);
+                    });
+                    
+                    this.log(`Found ${videoDevices.length} cameras`, 'info');
+                } catch (error) {
+                    this.log(`Error enumerating cameras: ${error.message}`, 'error');
+                    // Still try to show generic camera options
+                    const cameraSelect = document.getElementById('cameraSelect');
+                    cameraSelect.innerHTML = '<option value="">Select Camera...</option><option value="user">Front Camera</option><option value="environment">Back Camera</option>';
+                }
+            }
+            
+            async initializeCamera(deviceId = null) {
+                try {
+                    const constraints = { 
+                        video: { 
+                            width: { ideal: 640, max: 1280 }, 
+                            height: { ideal: 480, max: 720 },
+                            facingMode: 'user'
+                        } 
+                    };
+                    
+                    // Add deviceId if specified
+                    if (deviceId) {
+                        constraints.video.deviceId = { exact: deviceId };
+                        delete constraints.video.facingMode; // Remove facingMode when using deviceId
+                    }
+                    
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+                // Stop existing stream if any
+                if (this.video.srcObject) {
+                    this.video.srcObject.getTracks().forEach(track => track.stop());
+                }
+
+                this.video.srcObject = stream;
+                this.log('Camera initialized successfully', 'success');
+                this.updateStatus('🔄 Analyzing...', 'analyzing', 'Camera ready - Analyzing texture patterns', '-');
+                } catch (error) {
+                    this.log(`Camera error: ${error.message}`, 'error');
+                    
+                    // Handle specific mobile errors
+                    if (error.name === 'NotAllowedError') {
+                        this.updateStatus('⚠️ Permission', 'spoof', 'Camera permission denied. Please allow camera access and refresh.', '1');
+                        this.log('Camera permission denied. Please allow camera access in browser settings.', 'error');
+                    } else if (error.name === 'NotFoundError') {
+                        this.updateStatus('❌ No Camera', 'spoof', 'No camera found', '1');
+                    } else {
+                        this.updateStatus('❌ Error', 'spoof', 'Camera access failed', '1');
+                    }
+                }
+            }
+            
+            initializeFaceMesh() {
+                this.faceMesh = new FaceMesh({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+                });
+                
+                this.faceMesh.setOptions({
+                    maxNumFaces: 3, // Allow detection of multiple faces
+                    refineLandmarks: true,
+                    minDetectionConfidence: 0.6,
+                    minTrackingConfidence: 0.6
+                });
+                
+                this.faceMesh.onResults(this.onResults.bind(this));
+                
+                this.camera = new Camera(this.video, {
+                    onFrame: async () => {
+                        await this.faceMesh.send({ image: this.video });
+                    },
+                    width: 640,
+                    height: 480
+                });
+                
+                this.camera.start();
+                this.log('Face mesh initialized for texture analysis', 'info');
+            }
+            
+            onResults(results) {
+                this.frameCount++;
+                
+                // Clear canvas and draw video
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.ctx.drawImage(results.image, 0, 0, this.canvas.width, this.canvas.height);
+                
+                const faceCount = results.multiFaceLandmarks ? results.multiFaceLandmarks.length : 0;
+                document.getElementById('faceCount').textContent = faceCount;
+                
+                // Check for multiple faces first
+                if (faceCount > 1) {
+                    this.updateStatus('👥 Multiple Faces', 'multiple', 'Multiple faces detected', '2');
+                    this.log(`Multiple faces detected: ${faceCount}`, 'warning');
+                    return;
+                }
+                
+                // No face detected
+                if (faceCount === 0) {
+                    this.updateStatus('❌ No Face', 'spoof', 'No face detected', '1');
+                    return;
+                }
+                
+                // Single face detected - perform texture and reflection analysis
+                const landmarks = results.multiFaceLandmarks[0];
+                this.performTextureAnalysis(landmarks);
+                this.performReflectionAnalysis(landmarks);
+                
+                // Update UI and make decision
+                this.updateMetrics();
+                this.evaluateLiveliness();
+            }
+            
+            performTextureAnalysis(landmarks) {
+                // Get face region for texture analysis
+                const faceRegion = this.getFaceRegion(landmarks);
+                
+                // Extract texture samples from different face regions
+                const textureRegions = [
+                    this.getRegionAroundLandmark(landmarks, 10),  // Forehead
+                    this.getRegionAroundLandmark(landmarks, 50),  // Left cheek
+                    this.getRegionAroundLandmark(landmarks, 280), // Right cheek
+                    this.getRegionAroundLandmark(landmarks, 2),   // Nose tip
+                    this.getRegionAroundLandmark(landmarks, 175), // Lower face
+                    this.getRegionAroundLandmark(landmarks, 397)  // Chin area
+                ];
+                
+                let totalVariance = 0;
+                let totalSkinTexture = 0;
+                
+                textureRegions.forEach((region, index) => {
+                    if (region) {
+                        const variance = this.calculateTextureVariance(region);
+                        const skinTexture = this.calculateSkinTexture(region);
+                        
+                        totalVariance += variance;
+                        totalSkinTexture += skinTexture;
+                        
+                        // Draw texture sample
+                        this.drawTextureSample(region, index);
+                        
+                        if (this.debugMode) {
+                            console.log(`Region ${index}: Variance=${variance.toFixed(4)}, Skin=${skinTexture.toFixed(4)}`);
+                        }
+                    }
+                });
+                
+                this.textureVariance = totalVariance / textureRegions.length;
+                this.skinTexture = totalSkinTexture / textureRegions.length;
+                
+                this.log(`Texture analysis: Variance=${this.textureVariance.toFixed(4)}, Skin=${this.skinTexture.toFixed(4)}`, 'info');
+            }
+            
+            performReflectionAnalysis(landmarks) {
+                // Analyze reflection patterns, especially around eyes and nose
+                const reflectionRegions = [
+                    this.getRegionAroundLandmark(landmarks, 1),   // Nose tip (common reflection point)
+                    this.getRegionAroundLandmark(landmarks, 168), // Between eyes
+                    this.getRegionAroundLandmark(landmarks, 10),  // Forehead
+                ];
+                
+                let totalReflection = 0;
+                let validRegions = 0;
+                
+                reflectionRegions.forEach(region => {
+                    if (region) {
+                        const reflection = this.calculateReflectionScore(region);
+                        totalReflection += reflection;
+                        validRegions++;
+                    }
+                });
+                
+                this.reflectionScore = validRegions > 0 ? totalReflection / validRegions : 0;
+                
+                this.log(`Reflection analysis: Score=${this.reflectionScore.toFixed(4)}`, 'info');
+            }
+            
+            getFaceRegion(landmarks) {
+                // Get bounding box of face
+                let minX = 1, minY = 1, maxX = 0, maxY = 0;
+                
+                landmarks.forEach(point => {
+                    minX = Math.min(minX, point.x);
+                    minY = Math.min(minY, point.y);
+                    maxX = Math.max(maxX, point.x);
+                    maxY = Math.max(maxY, point.y);
+                });
+                
+                return {
+                    x: minX * this.canvas.width,
+                    y: minY * this.canvas.height,
+                    width: (maxX - minX) * this.canvas.width,
+                    height: (maxY - minY) * this.canvas.height
+                };
+            }
+            
+            getRegionAroundLandmark(landmarks, landmarkIndex, size = 30) {
+                const point = landmarks[landmarkIndex];
+                if (!point) return null;
+                
+                const x = point.x * this.canvas.width;
+                const y = point.y * this.canvas.height;
+                
+                return {
+                    x: Math.max(0, x - size/2),
+                    y: Math.max(0, y - size/2),
+                    width: Math.min(size, this.canvas.width - x + size/2),
+                    height: Math.min(size, this.canvas.height - y + size/2)
+                };
+            }
+            
+            calculateTextureVariance(region) {
+                const imageData = this.ctx.getImageData(region.x, region.y, region.width, region.height);
+                const data = imageData.data;
+                
+                let sum = 0;
+                let sumSquared = 0;
+                let count = 0;
+                
+                // Calculate grayscale variance
+                for (let i = 0; i < data.length; i += 4) {
+                    const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                    sum += gray;
+                    sumSquared += gray * gray;
+                    count++;
+                }
+                
+                if (count === 0) return 0;
+                
+                const mean = sum / count;
+                const variance = (sumSquared / count) - (mean * mean);
+                
+                return variance / (255 * 255); // Normalize to 0-1 range
+            }
+            
+            calculateSkinTexture(region) {
+                const imageData = this.ctx.getImageData(region.x, region.y, region.width, region.height);
+                const data = imageData.data;
+                
+                let textureComplexity = 0;
+                let validPixels = 0;
+                
+                // Simple edge detection for texture analysis
+                for (let y = 1; y < region.height - 1; y++) {
+                    for (let x = 1; x < region.width - 1; x++) {
+                        const idx = (y * region.width + x) * 4;
+                        
+                        const center = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+                        const right = (data[idx + 4] + data[idx + 5] + data[idx + 6]) / 3;
+                        const down = (data[idx + region.width * 4] + data[idx + region.width * 4 + 1] + data[idx + region.width * 4 + 2]) / 3;
+                        
+                        const edgeStrength = Math.abs(center - right) + Math.abs(center - down);
+                        textureComplexity += edgeStrength;
+                        validPixels++;
+                    }
+                }
+                
+                return validPixels > 0 ? textureComplexity / (validPixels * 255) : 0;
+            }
+            
+            calculateReflectionScore(region) {
+                const imageData = this.ctx.getImageData(region.x, region.y, region.width, region.height);
+                const data = imageData.data;
+                
+                let brightPixels = 0;
+                let totalPixels = 0;
+                let maxBrightness = 0;
+                
+                // Look for bright spots that might indicate screen reflection
+                for (let i = 0; i < data.length; i += 4) {
+                    const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                    maxBrightness = Math.max(maxBrightness, brightness);
+                    
+                    if (brightness > 200) { // Bright pixel threshold
+                        brightPixels++;
+                    }
+                    totalPixels++;
+                }
+                
+                // High reflection score indicates potential screen/photo
+                const reflectionRatio = brightPixels / totalPixels;
+                const normalizedMax = maxBrightness / 255;
+                
+                return (reflectionRatio * 0.7) + (normalizedMax * 0.3);
+            }
+            
+            drawTextureSample(region, index) {
+                if (index < this.textureSamples.length) {
+                    const sampleCanvas = this.textureSamples[index];
+                    const sampleCtx = sampleCanvas.getContext('2d');
+                    
+                    const imageData = this.ctx.getImageData(region.x, region.y, region.width, region.height);
+                    
+                    // Scale to fit sample canvas
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = region.width;
+                    tempCanvas.height = region.height;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.putImageData(imageData, 0, 0);
+                    
+                    sampleCtx.drawImage(tempCanvas, 0, 0, 60, 60);
+                }
+            }
+            
+            evaluateLiveliness() {
+                const faceCount = parseInt(document.getElementById('faceCount').textContent);
+                
+                // Multiple faces detected
+                if (faceCount > 1) {
+                    this.updateStatus('👥 Multiple Faces', 'multiple', 'Multiple faces detected', '2');
+                    return;
+                }
+                
+                // No face detected
+                if (faceCount === 0) {
+                    this.updateStatus('❌ No Face', 'spoof', 'No face detected', '1');
+                    return;
+                }
+                
+                // Single face - analyze texture and reflection
+                const textureGood = this.textureVariance > this.TEXTURE_THRESHOLD;
+                const reflectionGood = this.reflectionScore < this.REFLECTION_THRESHOLD;
+                const skinTextureGood = this.skinTexture > this.SKIN_TEXTURE_THRESHOLD;
+                
+                if (this.debugMode) {
+                    console.log(`Texture: ${textureGood}, Reflection: ${reflectionGood}, Skin: ${skinTextureGood}`);
+                }
+                
+                // Decision logic based on texture and reflection analysis
+                if (textureGood && reflectionGood && skinTextureGood) {
+                    this.updateStatus('✅ LIVE', 'live', 'Real person detected', '0');
+                    this.log('Classification: LIVE - Good texture variance, low reflection, natural skin texture', 'success');
+                } else {
+                    let reasons = [];
+                    if (!textureGood) reasons.push('low texture variance');
+                    if (!reflectionGood) reasons.push('high reflection (screen/photo)');
+                    if (!skinTextureGood) reasons.push('artificial skin texture');
+                    
+                    this.updateStatus('🔴 SPOOF', 'spoof', `Spoof detected: ${reasons.join(', ')}`, '1');
+                    this.log(`Classification: SPOOF - ${reasons.join(', ')}`, 'warning');
+                }
+            }
+            
+            updateStatus(icon, className, text, code) {
+                const statusElement = document.getElementById('status');
+                const statusTextElement = document.getElementById('statusText');
+                const outputCodeElement = document.getElementById('outputCode');
+                
+                statusElement.textContent = icon;
+                statusElement.className = `status-indicator ${className}`;
+                statusTextElement.textContent = text;
+                outputCodeElement.textContent = code;
+            }
+            
+            updateMetrics() {
+                const textureElement = document.getElementById('textureVariance');
+                const reflectionElement = document.getElementById('reflectionScore');
+                const skinTextureElement = document.getElementById('skinTexture');
+                
+                textureElement.textContent = (this.textureVariance || 0).toFixed(4);
+                reflectionElement.textContent = (this.reflectionScore || 0).toFixed(4);
+                skinTextureElement.textContent = (this.skinTexture || 0).toFixed(4);
+                
+                // Color coding based on thresholds
+                textureElement.className = `metric-value ${(this.textureVariance || 0) > this.TEXTURE_THRESHOLD ? 'good' : 'bad'}`;
+                reflectionElement.className = `metric-value ${(this.reflectionScore || 0) < this.REFLECTION_THRESHOLD ? 'good' : 'bad'}`;
+                skinTextureElement.className = `metric-value ${(this.skinTexture || 0) > this.SKIN_TEXTURE_THRESHOLD ? 'good' : 'bad'}`;
+            }
+            
+            reset() {
+                this.frameCount = 0;
+                this.analysisHistory = [];
+                this.textureVariance = 0;
+                this.reflectionScore = 0;
+                this.skinTexture = 0;
+                this.updateMetrics();
+                this.log('Analysis reset', 'info');
+            }
+            
+            log(message, type = 'info') {
+                const logPanel = document.getElementById('logPanel');
+                const timestamp = new Date().toLocaleTimeString();
+                const logEntry = document.createElement('div');
+                logEntry.className = `log-entry ${type}`;
+                logEntry.textContent = `[${timestamp}] ${message}`;
+                
+                logPanel.appendChild(logEntry);
+                logPanel.scrollTop = logPanel.scrollHeight;
+                
+                // Keep only last 30 entries
+                while (logPanel.children.length > 30) {
+                    logPanel.removeChild(logPanel.firstChild);
+                }
+            }
+            
+            bindEvents() {
+                document.getElementById('resetBtn').addEventListener('click', () => {
+                    this.reset();
+                });
+                
+                document.getElementById('toggleDebug').addEventListener('click', () => {
+                    this.debugMode = !this.debugMode;
+                    this.log(`Debug mode ${this.debugMode ? 'enabled' : 'disabled'}`, 'info');
+                });
+            }
+
+            bindCameraSelectEvent() {
+                const cameraSelect = document.getElementById('cameraSelect');
+                cameraSelect.addEventListener('change', (e) => {
+                    const selectedDeviceId = e.target.value;
+                    if (selectedDeviceId) {
+                        this.log(`Switching to camera: ${selectedDeviceId}`, 'info');
+                        this.initializeCamera(selectedDeviceId);
+                    }
+                });
+            }
+        }
+        
+        // Initialize the detector when page loads
+        window.addEventListener('load', () => {
+            new TextureReflectionDetector();
+        });
+    </script>
+</body>
+</html>
