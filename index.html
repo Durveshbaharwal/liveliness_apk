@@ -335,9 +335,9 @@
                 this.analysisHistory = [];
                 
                 // Texture analysis parameters
-                this.TEXTURE_THRESHOLD = 0.002;  // Minimum texture variance for live skin
+                this.TEXTURE_THRESHOLD = 0.0015;  // Minimum texture variance for live skin
                 this.REFLECTION_THRESHOLD = 0.2; // Maximum reflection score for live person
-                this.SKIN_TEXTURE_THRESHOLD = 0.012; // Minimum skin texture complexity
+                this.SKIN_TEXTURE_THRESHOLD = 0.01; // Minimum skin texture complexity
                 
                 // Initialize texture sample canvases
                 this.textureSamples = [];
@@ -785,8 +785,7 @@
                     }
                 });
             }
-        }
-        
+        }+
         // Initialize the detector when page loads
         window.addEventListener('load', () => {
             new TextureReflectionDetector();
